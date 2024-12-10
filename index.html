@@ -1,0 +1,316 @@
+<html>
+  <head>
+    <style>
+      html, body { 
+        background-color:#000;
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden !important;  
+      }
+      .instructions {
+        background-color:#222;
+        height: 22px;
+        width: 10%;
+        border-radius: 5px;
+      }
+    </style>
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@latest/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@latest/examples/jsm/"
+      }
+    }
+    </script>
+    <script type="module">
+
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';      
+
+      var renderer, controls, scene, camera;
+      const activeColor = 0xff69b4; 
+      const activePointsMaterial = new THREE.PointsMaterial({ color: 0xffff00 });
+      const colorPicker = document.getElementById("ColorPicker");
+      colorPicker.addEventListener("input", (event) => {
+        const selectedColor = colorPicker.value;
+        //console.log(selectedColor);
+        //console.log(typeof(selectedColor));
+        activeElement.color = new THREE.Color(selectedColor);
+        console.log(activeElement.color);
+      });
+      
+      var activeElement, activePoints;
+      var elements = new Array(), origins = new Array(), aeid = -1, apid = -1;
+      const maxDistance = 0.5;
+      var edit_origin;
+      
+      var originsObject = null;
+      
+      function updateOrigins(){
+        if(originsObject != null){
+          scene.remove(originsObject);
+        }
+        var oShape = new THREE.BufferGeometry(origins);
+        originsObject = new THREE.Points(oShape);
+        scene.add(originsObject);
+      }
+      
+      function getPointProjected(e, plane){
+        var pixel_coords = new THREE.Vector2( e.clientX, e.clientY );
+        var vp_coords = new THREE.Vector2( 
+                            ( pixel_coords.x / window.innerWidth ) * 2 - 1,  //X
+                           -( pixel_coords.y / window.innerHeight ) * 2 + 1) // Y
+
+        var vp_coords_near = new THREE.Vector3( vp_coords.x, vp_coords.y, 0);
+        var raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(vp_coords_near, camera);
+        var intersects = raycaster.intersectObject(plane);
+        return intersects;
+      }
+      
+      function getClickedObject(e){
+        var pixel_coords = new THREE.Vector2( e.clientX, e.clientY );
+        var vp_coords = new THREE.Vector2( 
+                            ( pixel_coords.x / window.innerWidth ) * 2 - 1,  //X
+                           -( pixel_coords.y / window.innerHeight ) * 2 + 1) // Y
+
+        var vp_coords_near = new THREE.Vector3( vp_coords.x, vp_coords.y, 0);
+        var raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(vp_coords_near, camera);
+        var intersects;
+        for(var i = (aeid+1)%elements.length; i != aeid; i = (i+1)%elements.length){
+          intersects = raycaster.intersectObject(elements[i].sceneObject);
+          if(intersects.length > 0){
+            deactivateCurrentElement();
+            activateElement(i);
+            redrawShape(0, new THREE.Vector2(0,0));
+            return false;
+          }
+        }
+        intersects = raycaster.intersectObject(elements[aeid].sceneObject);
+        if(intersects.length == 0){
+          deactivateCurrentElement();
+          return false;
+        }
+        return true;
+      }
+      
+      function activateElement(eid){
+        aeid = eid;
+        activeElement = elements[eid];
+        activeElement.sceneObject.material.color.setHex(activeColor);
+        activePoints = new THREE.Points(activeElement.geometry, activePointsMaterial);
+        activePoints.position.set(activeElement.origin.x, activeElement.origin.y);
+        scene.add(activePoints);
+      }
+      
+      function deactivateCurrentElement(){
+        if(aeid>-1){
+          activeElement.sceneObject.material.color.set(activeElement.color);
+          scene.remove(activePoints);
+          aeid = -1;
+        }
+      }
+      
+      function drawShape(points){
+        const shape = new THREE.Shape();
+        shape.moveTo(points[0], points[1]);
+        for(var i = 2; i < points.length; i += 2){
+          shape.lineTo(points[i], points[i+1]);
+        }
+        shape.moveTo(points[0], points[1]);
+        return new THREE.ShapeGeometry(shape);
+      }
+      
+      function redrawShape(pointID, delta){
+        scene.remove(activeElement.sceneObject);
+        scene.remove(activePoints);
+        
+        const shape = new THREE.Shape();
+        activeElement.points[2*pointID] += delta.x;
+        activeElement.points[2*pointID+1] += delta.y;
+        activeElement.geometry = drawShape(activeElement.points);
+        var material = new THREE.MeshBasicMaterial({ color: activeColor });
+        activeElement.sceneObject = new THREE.Mesh(activeElement.geometry, material);
+        activeElement.sceneObject.position.set(activeElement.origin.x, activeElement.origin.y);
+        scene.add(activeElement.sceneObject);
+
+        activePoints = new THREE.Points(activeElement.geometry, activePointsMaterial);
+        activePoints.position.set(activeElement.origin.x, activeElement.origin.y);
+        scene.add(activePoints);
+      }
+      
+      function nearestPoint(origin, shapeOrigin, points){
+        var closest = -1;
+        var cDistance = maxDistance;
+        for(var i = 0; i < points.length; i += 2){
+          var cPoint = new THREE.Vector2(shapeOrigin.x+points[i], shapeOrigin.y+points[i+1]);
+          if(origin.distanceTo(cPoint) < cDistance){
+            closest = i/2;
+            cDistance = origin.distanceTo(cPoint);
+          }
+        }
+        return closest;
+      }
+      
+      function addPoint(pos){
+        var points = activeElement.points;
+        
+        var lPos = pos.clone().sub(activeElement.origin);
+        
+        var iPoint = 0;
+        var prevPoint = new THREE.Vector2(points[-2], points[-1]);
+        var nextPoint = new THREE.Vector2(points[0], points[1]);
+        
+        var mDistance = lPos.distanceTo(prevPoint) + lPos.distanceTo(nextPoint);
+        var cDistance = mDistance;
+        for(var i = 2; i < activeElement.points.length; i+=2){
+          cDistance -= lPos.distanceTo(prevPoint);
+          prevPoint = nextPoint;
+          nextPoint = new THREE.Vector2(points[i], points[i+1]);
+          cDistance += lPos.distanceTo(nextPoint);
+          if(cDistance < mDistance){
+            mDistance = cDistance;
+            iPoint = i/2;
+          }
+        }
+        activeElement.points = activeElement.points.slice(0, iPoint*2).concat([lPos.x, lPos.y]).concat(activeElement.points.slice(iPoint*2));
+        redrawShape(iPoint, new THREE.Vector2(0,0));
+      }
+      
+      function removePoint(pointID){
+        activeElement.points = activeElement.points.slice(0, pointID*2).concat(activeElement.points.slice(pointID*2+2));
+        redrawShape(0, new THREE.Vector2(0,0));
+      }
+      
+      function addElement(x, y){
+        deactivateCurrentElement();
+        
+        var newElement = new Object();
+        newElement.points = [-5, 5, 5, 5, 5, -5, -5, -5];
+        newElement.origin = new THREE.Vector2(x, y);
+        newElement.geometry = drawShape(newElement.points);
+        newElement.color = 0xffffff;
+        var material = new THREE.MeshBasicMaterial({ color: activeColor });
+        newElement.sceneObject = new THREE.Mesh(newElement.geometry, material);
+        newElement.sceneObject.position.set(x, y);
+        
+        aeid = elements.length;
+        elements.push(newElement);
+        origins.push(newElement.origin);
+        updateOrigins();
+        activeElement = elements[aeid];
+        scene.add(activeElement.sceneObject);
+
+        activePoints = new THREE.Points(activeElement.geometry, activePointsMaterial);
+        activePoints.position.set(x, y);
+        scene.add(activePoints);
+      }
+
+      window.onload = function() {
+
+        // Create scene
+        scene = new THREE.Scene();
+
+        // create renderer and setup the canvas
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize( window.innerWidth, window.innerHeight );
+        document.body.appendChild( renderer.domElement );
+        
+        // setup lights
+        var ambientLight = new THREE.AmbientLight();
+        scene.add( ambientLight );
+
+        var light = new THREE.DirectionalLight( 0xffffff, 5.0 );
+        light.position.set( 10, 100, 10 );
+        scene.add( light );
+
+        // setup camera
+        var fov = 45;
+        var ratio = window.innerWidth / window.innerHeight;
+        var zNear = 1;
+        var zFar = 10000;
+        camera = new THREE.PerspectiveCamera( fov, ratio, zNear, zFar );
+        camera.position.set(0, 0, 100);
+
+        // interaction
+        controls = new OrbitControls( camera, renderer.domElement );
+        controls.mouseButtons = { MIDDLE: THREE.MOUSE.PAN };
+
+        // The invisible plane for click detection
+        var pGeometry = new THREE.PlaneGeometry( 10000, 10000 );
+        var pMaterial = new THREE.MeshBasicMaterial( {
+          visible: false
+        });
+        var invisible_plane = new THREE.Mesh( pGeometry, pMaterial );
+        scene.add( invisible_plane );
+
+        // Active element
+        activeElement = null;
+
+        renderer.domElement.onmousedown = function( e ){
+          var intersects = getPointProjected(e, invisible_plane);
+          var int_point = new THREE.Vector2(intersects[0].point.x, intersects[0].point.y);
+          
+          if(e.button == 0){
+            if(e.ctrlKey){
+              addElement(intersects[0].point.x, intersects[0].point.y);
+            }
+            else if(e.shiftKey){
+              addPoint(int_point);
+            }
+            else{
+              var np = nearestPoint(int_point, activeElement.origin, activeElement.points);
+              if(np != -1) {
+                edit_origin = int_point;
+                apid = np;
+              }
+            }
+          }
+          else if(e.button == 2){
+            var np = nearestPoint(int_point, activeElement.origin, activeElement.points);
+              if(np != -1) {
+                removePoint(np);
+              }
+          }
+        };
+        
+        renderer.domElement.onmousemove = function(e){
+          if(apid != -1){
+            var intersects = getPointProjected(e, invisible_plane);
+            var int_point = new THREE.Vector2(intersects[0].point.x, intersects[0].point.y);
+            var delta = int_point.clone().sub(edit_origin);
+            edit_origin = int_point;
+            redrawShape(apid, delta);
+            
+            //TODO: Update Mesh
+          }
+        }
+        
+        renderer.domElement.onmouseup = function( e ){
+          edit_origin = null;
+          apid = -1;
+        }
+        
+        window.onkeydown = function( e ){
+          if(e.key == 'c'){
+            colorPicker.style.display = (colorPicker.style.display=="block") ? "none" : "block";
+          }
+        }
+        // call animation/rendering loop
+        animate();
+      };
+
+      function animate() {
+        requestAnimationFrame( animate );
+        controls.update();
+        renderer.render( scene, camera );
+      };
+    </script>
+  </head>
+  <body>
+    <input type="color" id="ColorPicker" style="display: none" value="#ffffff">
+  </body>
+</html>
