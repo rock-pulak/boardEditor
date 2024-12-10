@@ -31,12 +31,10 @@
 
       var renderer, controls, scene, camera;
       const activeColor = 0xff69b4; 
-      const activePointsMaterial = new THREE.PointsMaterial({ color: 0xffff00 });
+      const activePointsMaterial = new THREE.PointsMaterial({ color: 0xff0000 });
       const colorPicker = document.getElementById("ColorPicker");
       colorPicker.addEventListener("input", (event) => {
         const selectedColor = colorPicker.value;
-        //console.log(selectedColor);
-        //console.log(typeof(selectedColor));
         activeElement.color = new THREE.Color(selectedColor);
         console.log(activeElement.color);
       });
@@ -200,13 +198,14 @@
         
         aeid = elements.length;
         elements.push(newElement);
-        origins.push(newElement.origin);
-        //updateOrigins();
         activeElement = elements[aeid];
         scene.add(activeElement.sceneObject);
+        
+        //origins.push(newElement.origin);
+        //updateOrigins();
 
         activePoints = new THREE.Points(activeElement.geometry, activePointsMaterial);
-        activePoints.position.set(x, y);
+        activePoints.position.set(x, y, 0.1);
         scene.add(activePoints);
       }
 
@@ -288,8 +287,6 @@
             var delta = int_point.clone().sub(edit_origin);
             edit_origin = int_point;
             redrawShape(apid, delta);
-            
-            //TODO: Update Mesh
           }
         }
         
