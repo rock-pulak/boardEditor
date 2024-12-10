@@ -54,6 +54,7 @@
         }
         var oShape = new THREE.BufferGeometry(origins);
         originsObject = new THREE.Points(oShape);
+        originsObject.position.set(0,0,0.1);
         scene.add(originsObject);
       }
       
@@ -138,7 +139,7 @@
         scene.add(activeElement.sceneObject);
 
         activePoints = new THREE.Points(activeElement.geometry, activePointsMaterial);
-        activePoints.position.set(activeElement.origin.x, activeElement.origin.y);
+        activePoints.position.set(activeElement.origin.x, activeElement.origin.y, 0.1);
         scene.add(activePoints);
       }
       
@@ -200,7 +201,7 @@
         aeid = elements.length;
         elements.push(newElement);
         origins.push(newElement.origin);
-        updateOrigins();
+        //updateOrigins();
         activeElement = elements[aeid];
         scene.add(activeElement.sceneObject);
 
