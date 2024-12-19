@@ -26,26 +26,38 @@
     </script>
     <script type="module">
 
+      // Import Three.js utilities
       import * as THREE from 'three';
-      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';      
-
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+      
+      // Three.js objects for rendering
       var renderer, controls, scene, camera;
-      const activeColor = 0xff69b4; 
-      const activePointsMaterial = new THREE.PointsMaterial({ color: 0xff0000 });
+      
+      // Global editor constants
+      const vertDetectDistance = 0.5;
+      const defaultShape = [new THREE.Vector2(-5, 5),
+                            new THREE.Vector2(5, 5),
+                            new THREE.Vector2(5, -5),
+                            new THREE.Vector2(-5, -5)];
+      const activeShapeMaterial = new THREE.MeshBasicMaterial({ color: 0xff69b4 });
+      const activePointsMaterial = new THREE.PointsMaterial({ color: 0xffff00 });
+      //const centersMaterial = new THREE.PointsMaterial({ color: 0xff0000 });
+      
+      // Color picker
       const colorPicker = document.getElementById("ColorPicker");
       colorPicker.addEventListener("input", (event) => {
         const selectedColor = colorPicker.value;
         activeElement.color = new THREE.Color(selectedColor);
-        console.log(activeElement.color);
       });
       
-      var activeElement, activePoints;
-      var elements = new Array(), origins = new Array(), aeid = -1, apid = -1;
-      const maxDistance = 0.5;
+      // Storing all scene elements
+      var elements = new Array();
       var edit_origin;
       
-      var originsObject = null;
+      // Managing the current active object and point;
+      var activeElement, activePoints, aeid = -1, apid = -1;
       
+      //TODO: Fix
       function updateOrigins(){
         if(originsObject != null){
           scene.remove(originsObject);
@@ -56,7 +68,8 @@
         scene.add(originsObject);
       }
       
-      function getPointProjected(e, plane){
+      // Utility for getting a raycast from the active camera
+      function getCameraRaycaster(e){
         var pixel_coords = new THREE.Vector2( e.clientX, e.clientY );
         var vp_coords = new THREE.Vector2( 
                             ( pixel_coords.x / window.innerWidth ) * 2 - 1,  //X
@@ -65,148 +78,135 @@
         var vp_coords_near = new THREE.Vector3( vp_coords.x, vp_coords.y, 0);
         var raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(vp_coords_near, camera);
-        var intersects = raycaster.intersectObject(plane);
-        return intersects;
+        return raycaster;
       }
       
+      // Detects where in the scene the user has clicked
+      function getPointProjected(e, plane){
+        var raycaster = getCameraRaycaster(e);
+        var intersects = raycaster.intersectObject(plane);
+        return new THREE.Vector2(intersects[0].point.x, intersects[0].point.y);
+      }
+      
+      // Finds the clicked object and sets it active
       function getClickedObject(e){
-        var pixel_coords = new THREE.Vector2( e.clientX, e.clientY );
-        var vp_coords = new THREE.Vector2( 
-                            ( pixel_coords.x / window.innerWidth ) * 2 - 1,  //X
-                           -( pixel_coords.y / window.innerHeight ) * 2 + 1) // Y
-
-        var vp_coords_near = new THREE.Vector3( vp_coords.x, vp_coords.y, 0);
-        var raycaster = new THREE.Raycaster();
-        raycaster.setFromCamera(vp_coords_near, camera);
-        var intersects;
-        for(var i = (aeid+1)%elements.length; i != aeid; i = (i+1)%elements.length){
-          intersects = raycaster.intersectObject(elements[i].sceneObject);
+        var raycaster = getCameraRaycaster(e);
+        var j, intersects;
+        for(var i = 0; i < elements.length; i++){
+          j = (aeid + i + 1)%elements.length;
+          intersects = raycaster.intersectObject(elements[j].sceneObject);
           if(intersects.length > 0){
-            deactivateCurrentElement();
-            activateElement(i);
-            redrawShape(0, new THREE.Vector2(0,0));
+            setActiveElement(j);
             return false;
           }
-        }
-        intersects = raycaster.intersectObject(elements[aeid].sceneObject);
-        if(intersects.length == 0){
-          deactivateCurrentElement();
-          return false;
         }
         return true;
       }
       
-      function activateElement(eid){
-        aeid = eid;
-        activeElement = elements[eid];
-        activeElement.sceneObject.material.color.setHex(activeColor);
-        activePoints = new THREE.Points(activeElement.geometry, activePointsMaterial);
-        activePoints.position.set(activeElement.origin.x, activeElement.origin.y);
-        scene.add(activePoints);
-      }
-      
-      function deactivateCurrentElement(){
-        if(aeid>-1){
-          activeElement.sceneObject.material.color.set(activeElement.color);
+      function setActiveElement(id){
+        if(aeid != -1){
+          drawShape(aeid, false);
           scene.remove(activePoints);
           aeid = -1;
         }
-      }
-      
-      function drawShape(points){
-        const shape = new THREE.Shape();
-        shape.moveTo(points[0], points[1]);
-        for(var i = 2; i < points.length; i += 2){
-          shape.lineTo(points[i], points[i+1]);
+        if(id != -1){
+          aeid = id;
+          drawShape(aeid, true);
         }
-        shape.moveTo(points[0], points[1]);
-        return new THREE.ShapeGeometry(shape);
       }
       
-      function redrawShape(pointID, delta){
-        scene.remove(activeElement.sceneObject);
-        scene.remove(activePoints);
-        
-        const shape = new THREE.Shape();
-        activeElement.points[2*pointID] += delta.x;
-        activeElement.points[2*pointID+1] += delta.y;
-        activeElement.geometry = drawShape(activeElement.points);
-        var material = new THREE.MeshBasicMaterial({ color: activeColor });
-        activeElement.sceneObject = new THREE.Mesh(activeElement.geometry, material);
-        activeElement.sceneObject.position.set(activeElement.origin.x, activeElement.origin.y);
-        scene.add(activeElement.sceneObject);
-
-        activePoints = new THREE.Points(activeElement.geometry, activePointsMaterial);
-        activePoints.position.set(activeElement.origin.x, activeElement.origin.y, 0.1);
-        scene.add(activePoints);
-      }
-      
-      function nearestPoint(origin, shapeOrigin, points){
-        var closest = -1;
-        var cDistance = maxDistance;
-        for(var i = 0; i < points.length; i += 2){
-          var cPoint = new THREE.Vector2(shapeOrigin.x+points[i], shapeOrigin.y+points[i+1]);
-          if(origin.distanceTo(cPoint) < cDistance){
-            closest = i/2;
-            cDistance = origin.distanceTo(cPoint);
+      function drawShape(id, activate){
+        if(id != -1){
+          // Choose the ID of the shape we want to draw
+          var targetElement = elements[id];
+          
+          // Remove existing scene objects
+          scene.remove(targetElement.sceneObject);
+          
+          // Remove previous shape
+          var material = activate ? activeShapeMaterial : new THREE.MeshBasicMaterial({ color: targetElement.color });
+          targetElement.sceneObject = new THREE.Mesh(targetElement.geometry, material);
+          targetElement.sceneObject.position.set(targetElement.origin.x, targetElement.origin.y, activate? 0.05:0);
+          scene.add(targetElement.sceneObject);
+          
+          if(activate){
+            activeElement = targetElement;
+            activePoints = new THREE.Points(activeElement.geometry, activePointsMaterial);
+            activePoints.position.set(targetElement.origin.x, targetElement.origin.y, 0.1);
+            scene.add(activePoints);
           }
         }
+      }
+      
+      //TODO: Rework to be "Change mesh" or something
+      function redrawShape(pointID, delta, setActive = false){
+        activeElement.points[pointID] += delta;
+        activeElement.geometry = new THREE.ShapeGeometry(new THREE.Shape(activeElement.points));
+      }
+      
+      //TODO: Returns the nearest point within the point detection radius
+      function nearestPoint(origin, shapeOrigin, points){
+        var closest = -1;
+        var cDistance = vertDetectDistance;
+        for(var i = 0; i < points.length; i++){
+          var local = shapeOrigin.clone().add(points[i]);
+          var dist = origin.distanceTo(local);
+          if(dist < cDistance){
+            closest = i;
+            cDistance = dist;
+          }
+        }
+        console.log(closest);
         return closest;
       }
       
+      //TODO: Fix
       function addPoint(pos){
         var points = activeElement.points;
         
         var lPos = pos.clone().sub(activeElement.origin);
         
         var iPoint = 0;
-        var prevPoint = new THREE.Vector2(points[-2], points[-1]);
-        var nextPoint = new THREE.Vector2(points[0], points[1]);
-        
+        var prevPoint = points[points.length-1];
+        var nextPoint = points[0];
         var mDistance = lPos.distanceTo(prevPoint) + lPos.distanceTo(nextPoint);
         var cDistance = mDistance;
-        for(var i = 2; i < activeElement.points.length; i+=2){
+        for(var i = 1; i < activeElement.points.length; i++){
           cDistance -= lPos.distanceTo(prevPoint);
           prevPoint = nextPoint;
-          nextPoint = new THREE.Vector2(points[i], points[i+1]);
+          nextPoint = points[i];
           cDistance += lPos.distanceTo(nextPoint);
           if(cDistance < mDistance){
             mDistance = cDistance;
             iPoint = i/2;
           }
         }
-        activeElement.points = activeElement.points.slice(0, iPoint*2).concat([lPos.x, lPos.y]).concat(activeElement.points.slice(iPoint*2));
-        redrawShape(iPoint, new THREE.Vector2(0,0));
+        activeElement.points = activeElement.points.slice(0, iPoint).concat(lPos).concat(activeElement.points.slice(iPoint));
+        drawShape(aeid, true);
       }
       
+      // TODO: Adapt to work with the new thing
       function removePoint(pointID){
-        activeElement.points = activeElement.points.slice(0, pointID*2).concat(activeElement.points.slice(pointID*2+2));
-        redrawShape(0, new THREE.Vector2(0,0));
+        console.log(pointID);
+        console.log(activeElement.points);
+        activeElement.points = activeElement.points.slice(0, pointID).concat(activeElement.points.slice(pointID+1));
+        console.log(activeElement.points);
+        setActiveElement(aeid);
       }
       
-      function addElement(x, y){
-        deactivateCurrentElement();
-        
+      // Adds a board element to the scene
+      function addElement(pos){
+        // Create the new element
         var newElement = new Object();
-        newElement.points = [-5, 5, 5, 5, 5, -5, -5, -5];
-        newElement.origin = new THREE.Vector2(x, y);
-        newElement.geometry = drawShape(newElement.points);
+        newElement.points = structuredClone(defaultShape);
+        newElement.origin = pos;
+        newElement.geometry = new THREE.ShapeGeometry(new THREE.Shape(newElement.points));
         newElement.color = 0xffffff;
-        var material = new THREE.MeshBasicMaterial({ color: activeColor });
-        newElement.sceneObject = new THREE.Mesh(newElement.geometry, material);
-        newElement.sceneObject.position.set(x, y);
-        
-        aeid = elements.length;
+        newElement.sceneObject = null;
         elements.push(newElement);
-        activeElement = elements[aeid];
-        scene.add(activeElement.sceneObject);
         
-        //origins.push(newElement.origin);
-        //updateOrigins();
-
-        activePoints = new THREE.Points(activeElement.geometry, activePointsMaterial);
-        activePoints.position.set(x, y, 0.1);
-        scene.add(activePoints);
+        // Draw the shape of the new element in the scene
+        setActiveElement(elements.length-1);
       }
 
       window.onload = function() {
@@ -224,7 +224,7 @@
         scene.add( ambientLight );
 
         var light = new THREE.DirectionalLight( 0xffffff, 5.0 );
-        light.position.set( 10, 100, 10 );
+        light.position.set( 0, 100, 0 );
         scene.add( light );
 
         // setup camera
@@ -251,12 +251,11 @@
         activeElement = null;
 
         renderer.domElement.onmousedown = function( e ){
-          var intersects = getPointProjected(e, invisible_plane);
-          var int_point = new THREE.Vector2(intersects[0].point.x, intersects[0].point.y);
+          var int_point = getPointProjected(e, invisible_plane);
           
           if(e.button == 0){
             if(e.ctrlKey){
-              addElement(intersects[0].point.x, intersects[0].point.y);
+              addElement(int_point);
             }
             else if(e.shiftKey){
               addPoint(int_point);
@@ -282,11 +281,16 @@
         
         renderer.domElement.onmousemove = function(e){
           if(apid != -1){
-            var intersects = getPointProjected(e, invisible_plane);
-            var int_point = new THREE.Vector2(intersects[0].point.x, intersects[0].point.y);
+            var int_point = getPointProjected(e, invisible_plane);
             var delta = int_point.clone().sub(edit_origin);
+            console.log(delta);
+            
+            activeElement.points[apid] = delta.clone().add(activeElement.points[apid]);
+            elements[aeid] = activeElement;
+            
             edit_origin = int_point;
-            redrawShape(apid, delta);
+            
+            drawShape(aeid, true);
           }
         }
         
