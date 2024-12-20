@@ -34,36 +34,35 @@
       var renderer, controls, scene, camera;
       
       // Global editor constants
-      const vertDetectDistance = 0.5;
+      const vertDetectDistance = 1.5;
       const defaultShape = [new THREE.Vector2(-5, 5),
                             new THREE.Vector2(5, 5),
                             new THREE.Vector2(5, -5),
                             new THREE.Vector2(-5, -5)];
       const activeShapeMaterial = new THREE.MeshBasicMaterial({ color: 0xff69b4 });
       const activePointsMaterial = new THREE.PointsMaterial({ color: 0xffff00 });
-      //const centersMaterial = new THREE.PointsMaterial({ color: 0xff0000 });
+      const originsMaterial = new THREE.PointsMaterial({ color: 0xff0000 });
       
       // Color picker
       const colorPicker = document.getElementById("ColorPicker");
       colorPicker.addEventListener("input", (event) => {
         const selectedColor = colorPicker.value;
-        activeElement.color = new THREE.Color(selectedColor);
+        elements[activeElementID].color = new THREE.Color(selectedColor);
       });
       
       // Storing all scene elements
-      var elements = new Array();
+      var elements = new Array(), origins = new Array(), originsObject = null;
       var edit_origin;
       
       // Managing the current active object and point;
-      var activeElement, activePoints, aeid = -1, apid = -1;
+      var activePoints, activeElementID = -1, activePointID = -1;
       
-      //TODO: Fix
-      function updateOrigins(){
-        if(originsObject != null){
-          scene.remove(originsObject);
-        }
-        var oShape = new THREE.BufferGeometry(origins);
-        originsObject = new THREE.Points(oShape);
+      // Draws the center points of all objects
+      // TODO: Modify origins to render even if there are less than 3 spaces
+      function redrawOrigins(){
+        scene.remove(originsObject);
+        var oShape = new THREE.ShapeGeometry(new THREE.Shape(origins));
+        originsObject = new THREE.Points(oShape, originsMaterial);
         originsObject.position.set(0,0,0.1);
         scene.add(originsObject);
       }
@@ -93,61 +92,55 @@
         var raycaster = getCameraRaycaster(e);
         var j, intersects;
         for(var i = 0; i < elements.length; i++){
-          j = (aeid + i + 1)%elements.length;
+          j = (activeElementID + i + 1)%elements.length;
           intersects = raycaster.intersectObject(elements[j].sceneObject);
           if(intersects.length > 0){
-            setActiveElement(j);
-            return false;
+            //setActiveElement(j);
+            return j;
           }
         }
-        return true;
+        return -1;
       }
       
-      function setActiveElement(id){
-        if(aeid != -1){
-          drawShape(aeid, false);
+      // Deletes the old shape and draws a new one
+      function redrawElement(id){
+        var isActive = id == activeElementID;
+        scene.remove(elements[id].sceneObject);
+        if(isActive){
           scene.remove(activePoints);
-          aeid = -1;
+        }
+        
+        elements[id].geometry = new THREE.ShapeGeometry(new THREE.Shape(elements[id].points));
+        var material = isActive ? activeShapeMaterial : new THREE.MeshBasicMaterial({ color: elements[id].color });
+        elements[id].sceneObject = new THREE.Mesh(elements[id].geometry, material);
+        elements[id].sceneObject.position.set(elements[id].origin.x, elements[id].origin.y, isActive? 0.05:0);
+        scene.add(elements[id].sceneObject);
+        if(isActive){
+          activePoints = new THREE.Points(elements[id].geometry, activePointsMaterial);
+          activePoints.position.set(elements[id].origin.x, elements[id].origin.y, 0.1);
+          scene.add(activePoints);
+        }
+      }
+      
+      // Chooses the active element
+      function setActiveElement(id){
+        var prevID = activeElementID;
+        activeElementID = id;
+        if(prevID != -1){
+          redrawElement(prevID);
         }
         if(id != -1){
-          aeid = id;
-          drawShape(aeid, true);
+          redrawElement(id);
+        }
+        else{
+          scene.remove(activePoints);
         }
       }
       
-      function drawShape(id, activate){
-        if(id != -1){
-          // Choose the ID of the shape we want to draw
-          var targetElement = elements[id];
-          
-          // Remove existing scene objects
-          scene.remove(targetElement.sceneObject);
-          
-          // Remove previous shape
-          var material = activate ? activeShapeMaterial : new THREE.MeshBasicMaterial({ color: targetElement.color });
-          targetElement.sceneObject = new THREE.Mesh(targetElement.geometry, material);
-          targetElement.sceneObject.position.set(targetElement.origin.x, targetElement.origin.y, activate? 0.05:0);
-          scene.add(targetElement.sceneObject);
-          
-          if(activate){
-            activeElement = targetElement;
-            activePoints = new THREE.Points(activeElement.geometry, activePointsMaterial);
-            activePoints.position.set(targetElement.origin.x, targetElement.origin.y, 0.1);
-            scene.add(activePoints);
-          }
-        }
-      }
-      
-      //TODO: Rework to be "Change mesh" or something
-      function redrawShape(pointID, delta, setActive = false){
-        activeElement.points[pointID] += delta;
-        activeElement.geometry = new THREE.ShapeGeometry(new THREE.Shape(activeElement.points));
-      }
-      
-      //TODO: Returns the nearest point within the point detection radius
+      // Returns the nearest point within the point detection radius
       function nearestPoint(origin, shapeOrigin, points){
         var closest = -1;
-        var cDistance = vertDetectDistance;
+        var cDistance = vertDetectDistance/camera.zoom;
         for(var i = 0; i < points.length; i++){
           var local = shapeOrigin.clone().add(points[i]);
           var dist = origin.distanceTo(local);
@@ -156,42 +149,40 @@
             cDistance = dist;
           }
         }
-        console.log(closest);
         return closest;
       }
       
-      //TODO: Fix
+      // Adds a point to the current active shape
+      // TODO: Rework edge case with bad edge detection
       function addPoint(pos){
-        var points = activeElement.points;
+        var points = elements[activeElementID].points;
         
-        var lPos = pos.clone().sub(activeElement.origin);
+        var lPos = pos.clone().sub(elements[activeElementID].origin);
         
         var iPoint = 0;
         var prevPoint = points[points.length-1];
         var nextPoint = points[0];
         var mDistance = lPos.distanceTo(prevPoint) + lPos.distanceTo(nextPoint);
         var cDistance = mDistance;
-        for(var i = 1; i < activeElement.points.length; i++){
+        for(var i = 1; i < points.length; i++){
           cDistance -= lPos.distanceTo(prevPoint);
           prevPoint = nextPoint;
           nextPoint = points[i];
           cDistance += lPos.distanceTo(nextPoint);
           if(cDistance < mDistance){
             mDistance = cDistance;
-            iPoint = i/2;
+            iPoint = i;
           }
         }
-        activeElement.points = activeElement.points.slice(0, iPoint).concat(lPos).concat(activeElement.points.slice(iPoint));
-        drawShape(aeid, true);
+        elements[activeElementID].points = elements[activeElementID].points.slice(0, iPoint).concat(lPos).concat(elements[activeElementID].points.slice(iPoint));
+        redrawElement(activeElementID);
+        return iPoint;
       }
       
-      // TODO: Adapt to work with the new thing
+      // Removes a point from the current active shape
       function removePoint(pointID){
-        console.log(pointID);
-        console.log(activeElement.points);
-        activeElement.points = activeElement.points.slice(0, pointID).concat(activeElement.points.slice(pointID+1));
-        console.log(activeElement.points);
-        setActiveElement(aeid);
+        elements[activeElementID].points = elements[activeElementID].points.slice(0, pointID).concat(elements[activeElementID].points.slice(pointID+1));
+        redrawElement(activeElementID);
       }
       
       // Adds a board element to the scene
@@ -204,8 +195,8 @@
         newElement.color = 0xffffff;
         newElement.sceneObject = null;
         elements.push(newElement);
-        
-        // Draw the shape of the new element in the scene
+        origins.push(newElement.origin);
+        console.log(origins);
         setActiveElement(elements.length-1);
       }
 
@@ -247,32 +238,37 @@
         var invisible_plane = new THREE.Mesh( pGeometry, pMaterial );
         scene.add( invisible_plane );
 
-        // Active element
-        activeElement = null;
-
         renderer.domElement.onmousedown = function( e ){
           var int_point = getPointProjected(e, invisible_plane);
           
           if(e.button == 0){
             if(e.ctrlKey){
               addElement(int_point);
+              redrawOrigins();
             }
             else if(e.shiftKey){
-              addPoint(int_point);
+              edit_origin = int_point;
+              activePointID = addPoint(int_point);
             }
             else{
-              var np = nearestPoint(int_point, activeElement.origin, activeElement.points);
-              if(np != -1) {
-                edit_origin = int_point;
-                apid = np;
+              if(activeElementID == -1){
+                setActiveElement(getClickedObject(e));
               }
-              else{
-                getClickedObject(e);
+              else {
+                var np = nearestPoint(int_point, elements[activeElementID].origin, elements[activeElementID].points);
+                if(np != -1) {
+                  edit_origin = int_point;
+                  activePointID = np;
+                }
+                else{
+                  setActiveElement(getClickedObject(e));
+                  edit_origin = int_point;
+                }
               }
             }
           }
           else if(e.button == 2){
-            var np = nearestPoint(int_point, activeElement.origin, activeElement.points);
+            var np = nearestPoint(int_point, elements[activeElementID].origin, elements[activeElementID].points);
               if(np != -1) {
                 removePoint(np);
               }
@@ -280,23 +276,27 @@
         };
         
         renderer.domElement.onmousemove = function(e){
-          if(apid != -1){
+          if(activePointID != -1){
             var int_point = getPointProjected(e, invisible_plane);
             var delta = int_point.clone().sub(edit_origin);
-            console.log(delta);
-            
-            activeElement.points[apid] = delta.clone().add(activeElement.points[apid]);
-            elements[aeid] = activeElement;
-            
+            elements[activeElementID].points[activePointID] = delta.clone().add(elements[activeElementID].points[activePointID]);
             edit_origin = int_point;
-            
-            drawShape(aeid, true);
+            redrawElement(activeElementID);
+          }
+          else if(edit_origin != null){
+            var int_point = getPointProjected(e, invisible_plane);
+            var delta = int_point.clone().sub(edit_origin);
+            elements[activeElementID].origin = delta.clone().add(elements[activeElementID].origin);
+            origins[activeElementID] = elements[activeElementID].origin;
+            edit_origin = int_point;
+            redrawElement(activeElementID);
+            redrawOrigins();
           }
         }
         
         renderer.domElement.onmouseup = function( e ){
           edit_origin = null;
-          apid = -1;
+          activePointID = -1;
         }
         
         window.onkeydown = function( e ){
