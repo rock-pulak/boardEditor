@@ -84,7 +84,9 @@
       function getPointProjected(e, plane){
         var raycaster = getCameraRaycaster(e);
         var intersects = raycaster.intersectObject(plane);
-        return new THREE.Vector2(intersects[0].point.x, intersects[0].point.y);
+        var xPos = e.altKey ? Math.round(intersects[0].point.x) : intersects[0].point.x;
+        var yPos = e.altKey ? Math.round(intersects[0].point.y) : intersects[0].point.y;
+        return new THREE.Vector2(xPos, yPos);
       }
       
       // Finds the clicked object and sets it active
