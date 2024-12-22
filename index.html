@@ -34,14 +34,14 @@
       var renderer, controls, scene, camera;
       
       // Global editor constants
-      const vertDetectDistance = 1.5;
-      const defaultShape = [new THREE.Vector2(-5, 5),
-                            new THREE.Vector2(5, 5),
-                            new THREE.Vector2(5, -5),
-                            new THREE.Vector2(-5, -5)];
+      const vertDetectDistance = 0.1;
+      const defaultShape = [new THREE.Vector2(-1, 1),
+                            new THREE.Vector2(1, 1),
+                            new THREE.Vector2(1, -1),
+                            new THREE.Vector2(-1, -1)];
       const activeShapeMaterial = new THREE.MeshBasicMaterial({ color: 0xff69b4 });
-      const activePointsMaterial = new THREE.PointsMaterial({ color: 0xffff00 });
-      const originsMaterial = new THREE.PointsMaterial({ color: 0xff0000 });
+      const activePointsMaterial = new THREE.PointsMaterial({ color: 0xffff00, size: 6, sizeAttenuation: false });
+      const originsMaterial = new THREE.PointsMaterial({ color: 0xff0000, size: 9, sizeAttenuation: false });
       
       // Color picker
       const colorPicker = document.getElementById("ColorPicker");
@@ -52,18 +52,23 @@
       
       // Storing all scene elements
       var elements = new Array(), origins = new Array(), originsObject = null;
-      var edit_origin;
+      var edit_origin, virtualPosition;
       
       // Managing the current active object and point;
       var activePoints, activeElementID = -1, activePointID = -1;
       
+      // Editor settings
+      var gridSnap = false;
+      var guideGrid = new THREE.GridHelper(1000 , 1000, 0xdddddd, 0x888888);
+      guideGrid.rotation.set(Math.PI / 2, 0,  0);
+      
       // Draws the center points of all objects
-      // TODO: Modify origins to render even if there are less than 3 spaces
+      // TODO: Bugfix, sometimes points don't render. Use BufferGeometry?
       function redrawOrigins(){
         scene.remove(originsObject);
         var oShape = new THREE.ShapeGeometry(new THREE.Shape(origins));
         originsObject = new THREE.Points(oShape, originsMaterial);
-        originsObject.position.set(0,0,0.1);
+        originsObject.renderOrder = elements.length+1;
         scene.add(originsObject);
       }
       
@@ -84,9 +89,7 @@
       function getPointProjected(e, plane){
         var raycaster = getCameraRaycaster(e);
         var intersects = raycaster.intersectObject(plane);
-        var xPos = e.altKey ? Math.round(intersects[0].point.x) : intersects[0].point.x;
-        var yPos = e.altKey ? Math.round(intersects[0].point.y) : intersects[0].point.y;
-        return new THREE.Vector2(xPos, yPos);
+        return new THREE.Vector2(intersects[0].point.x, intersects[0].point.y);
       }
       
       // Finds the clicked object and sets it active
@@ -97,7 +100,6 @@
           j = (activeElementID + i + 1)%elements.length;
           intersects = raycaster.intersectObject(elements[j].sceneObject);
           if(intersects.length > 0){
-            //setActiveElement(j);
             return j;
           }
         }
@@ -115,11 +117,13 @@
         elements[id].geometry = new THREE.ShapeGeometry(new THREE.Shape(elements[id].points));
         var material = isActive ? activeShapeMaterial : new THREE.MeshBasicMaterial({ color: elements[id].color });
         elements[id].sceneObject = new THREE.Mesh(elements[id].geometry, material);
-        elements[id].sceneObject.position.set(elements[id].origin.x, elements[id].origin.y, isActive? 0.05:0);
+        elements[id].sceneObject.position.set(elements[id].origin.x, elements[id].origin.y, 0);
+        elements[id].sceneObject.renderOrder = isActive ? elements.length:id;
         scene.add(elements[id].sceneObject);
         if(isActive){
           activePoints = new THREE.Points(elements[id].geometry, activePointsMaterial);
-          activePoints.position.set(elements[id].origin.x, elements[id].origin.y, 0.1);
+          activePoints.position.set(elements[id].origin.x, elements[id].origin.y, 0);
+          activePoints.renderOrder = elements.length+1;
           scene.add(activePoints);
         }
       }
@@ -142,7 +146,8 @@
       // Returns the nearest point within the point detection radius
       function nearestPoint(origin, shapeOrigin, points){
         var closest = -1;
-        var cDistance = vertDetectDistance/camera.zoom;
+        //TODO: Figure out how to scale this based on camera zoom
+        var cDistance = vertDetectDistance;
         for(var i = 0; i < points.length; i++){
           var local = shapeOrigin.clone().add(points[i]);
           var dist = origin.distanceTo(local);
@@ -187,18 +192,27 @@
         redrawElement(activeElementID);
       }
       
+      // Handles grid snapping
+      function snapToGrid(pos, origin = new THREE.Vector2(0,0)){
+        return new THREE.Vector2(Math.round(pos.x) - origin.x, Math.round(pos.y) - origin.y);
+      }
+
+      // Handles local offsets for global grid snapping
+      function localSnapOffset(pos){
+        return new THREE.Vector2(pos.x%1, pos.y%1);
+      }
+
       // Adds a board element to the scene
       function addElement(pos){
         // Create the new element
         var newElement = new Object();
         newElement.points = structuredClone(defaultShape);
-        newElement.origin = pos;
+        newElement.origin = gridSnap ? snapToGrid(pos) : pos;
         newElement.geometry = new THREE.ShapeGeometry(new THREE.Shape(newElement.points));
         newElement.color = 0xffffff;
         newElement.sceneObject = null;
         elements.push(newElement);
         origins.push(newElement.origin);
-        console.log(origins);
         setActiveElement(elements.length-1);
       }
 
@@ -226,7 +240,8 @@
         var zNear = 1;
         var zFar = 10000;
         camera = new THREE.PerspectiveCamera( fov, ratio, zNear, zFar );
-        camera.position.set(0, 0, 100);
+        camera.enableZoom = true;
+        camera.position.set(0, 0, 25);
 
         // interaction
         controls = new OrbitControls( camera, renderer.domElement );
@@ -265,6 +280,7 @@
                 else{
                   setActiveElement(getClickedObject(e));
                   edit_origin = int_point;
+                  virtualPosition = elements[activeElementID].origin;
                 }
               }
             }
@@ -280,17 +296,17 @@
         renderer.domElement.onmousemove = function(e){
           if(activePointID != -1){
             var int_point = getPointProjected(e, invisible_plane);
-            var delta = int_point.clone().sub(edit_origin);
-            elements[activeElementID].points[activePointID] = delta.clone().add(elements[activeElementID].points[activePointID]);
+            var targetPoint = int_point.clone().sub(elements[activeElementID].origin);
+            elements[activeElementID].points[activePointID] = gridSnap ? snapToGrid(targetPoint, localSnapOffset(elements[activeElementID].origin)) : targetPoint;
             edit_origin = int_point;
             redrawElement(activeElementID);
           }
           else if(edit_origin != null){
             var int_point = getPointProjected(e, invisible_plane);
             var delta = int_point.clone().sub(edit_origin);
-            elements[activeElementID].origin = delta.clone().add(elements[activeElementID].origin);
+            var targetPoint = virtualPosition.clone().add(delta);
+            elements[activeElementID].origin = gridSnap ? snapToGrid(targetPoint) : targetPoint;
             origins[activeElementID] = elements[activeElementID].origin;
-            edit_origin = int_point;
             redrawElement(activeElementID);
             redrawOrigins();
           }
@@ -298,12 +314,17 @@
         
         renderer.domElement.onmouseup = function( e ){
           edit_origin = null;
+          virtualPosition = null;
           activePointID = -1;
         }
         
         window.onkeydown = function( e ){
           if(e.key == 'c'){
             colorPicker.style.display = (colorPicker.style.display=="block") ? "none" : "block";
+          }
+          else if(e.key == 'g'){
+            gridSnap = !gridSnap;
+            gridSnap ? scene.add(guideGrid) : scene.remove(guideGrid);
           }
         }
         // call animation/rendering loop
