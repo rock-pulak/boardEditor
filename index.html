@@ -357,6 +357,27 @@
             if(np != -1) {
               removePoint(np);
             }
+            else{
+              var clickTarget = getClickedObject(e);
+              if(clickTarget != -1){
+                //TODO: To function?
+                scene.remove(elements[clickTarget].sceneObject);
+                for(var i = 0; i < elements.length; i++){
+                  if(i != clickTarget && elements[i].neighbors.includes(clickTarget)){
+                    elements[i].neighbors.pop(elements[i].neighbors.indexOf(clickTarget));
+                  }
+                }
+                elements = elements.slice(0, clickTarget).concat(elements.slice(clickTarget+1));
+                if(clickTarget == activeElementID){
+                  scene.remove(activePoints);
+                  scene.remove(originsObject);
+                  activeElementID = -1;
+                }
+                else if(clickTarget < activeElementID){
+                  activeElementID--;
+                }
+              }
+            }
           }
         };
         
