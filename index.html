@@ -270,6 +270,10 @@
             else{
               if(activeElementID == -1){
                 setActiveElement(getClickedObject(e));
+                if(activeElementID != -1){
+                  edit_origin = int_point;
+                  virtualPosition = elements[activeElementID].origin;
+                }
               }
               else {
                 var np = nearestPoint(int_point, elements[activeElementID].origin, elements[activeElementID].points);
@@ -279,8 +283,10 @@
                 }
                 else{
                   setActiveElement(getClickedObject(e));
-                  edit_origin = int_point;
-                  virtualPosition = elements[activeElementID].origin;
+                  if(activeElementID != -1){
+                    edit_origin = int_point;
+                    virtualPosition = elements[activeElementID].origin;
+                  }
                 }
               }
             }
