@@ -8,11 +8,16 @@
         height: 100%;
         overflow: hidden !important;  
       }
-      .instructions {
-        background-color:#222;
-        height: 22px;
-        width: 10%;
-        border-radius: 5px;
+      .instructions{
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        z-index: 10;
+        background-color: rgba(0.2,0.2,0.2,0.5);
+      }
+      label {
+        color: #ffffff;
       }
     </style>
     <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
@@ -42,6 +47,7 @@
       const activeShapeMaterial = new THREE.MeshBasicMaterial({ color: 0xff69b4 });
       const activePointsMaterial = new THREE.PointsMaterial({ color: 0xffff00, size: 6, sizeAttenuation: false });
       const originsMaterial = new THREE.PointsMaterial({ color: 0xff0000, size: 9, sizeAttenuation: false });
+      const connectionsMaterial = new THREE.LineBasicMaterial({ color: 0x4444ff, linewidth: 3 });
       
       // Color picker
       const colorPicker = document.getElementById("ColorPicker");
@@ -56,20 +62,25 @@
       
       // Managing the current active object and point;
       var activePoints, activeElementID = -1, activePointID = -1;
+      var drawConnectionOrigin = null;
+      var activeConnectionObject = null;
+      var currentConnectionsObject = null;
       
       // Editor settings
       var gridSnap = false;
-      var guideGrid = new THREE.GridHelper(1000 , 1000, 0xdddddd, 0x888888);
+      var guideGrid = new THREE.GridHelper(1000 , 1000, 0x888888, 0x444444);
       guideGrid.rotation.set(Math.PI / 2, 0,  0);
       
       // Draws the center points of all objects
       // TODO: Bugfix, sometimes points don't render. Use BufferGeometry?
-      function redrawOrigins(){
+      function redrawOrigins(drawAll){
         scene.remove(originsObject);
-        var oShape = new THREE.ShapeGeometry(new THREE.Shape(origins));
-        originsObject = new THREE.Points(oShape, originsMaterial);
-        originsObject.renderOrder = elements.length+1;
-        scene.add(originsObject);
+        if(activeElementID != -1 || drawAll){
+          var oPoints = new THREE.BufferGeometry().setFromPoints(drawAll ? origins : [elements[activeElementID].origin]);
+          originsObject = new THREE.Points(oPoints, originsMaterial);
+          originsObject.renderOrder = elements.length+2;
+          scene.add(originsObject);
+        }
       }
       
       // Utility for getting a raycast from the active camera
@@ -90,6 +101,44 @@
         var raycaster = getCameraRaycaster(e);
         var intersects = raycaster.intersectObject(plane);
         return new THREE.Vector2(intersects[0].point.x, intersects[0].point.y);
+      }
+      
+      function redrawInProgressConnection(pos){
+        scene.remove(activeConnectionObject);
+        var points = [pos, elements[drawConnectionOrigin].origin];
+        var cLine = new THREE.BufferGeometry().setFromPoints(points);
+        activeConnectionObject = new THREE.Line(cLine, connectionsMaterial);
+        activeConnectionObject.renderOrder = elements.length+1;
+        scene.add(activeConnectionObject);
+      }
+      
+      function getLinesGeometry(origin, targets){
+        var returnArray = new Array();
+        for(var i = 0; i < targets.length; i++){
+          returnArray.push(origin);
+          returnArray.push(elements[targets[i]].origin);
+        }
+        return returnArray;
+      }
+      
+      function redrawActiveElementConnections(){
+        scene.remove(currentConnectionsObject);
+        var cLine = new THREE.BufferGeometry().setFromPoints(getLinesGeometry(elements[activeElementID].origin, elements[activeElementID].neighbors));
+        currentConnectionsObject = new THREE.Line(cLine, connectionsMaterial);
+        currentConnectionsObject.renderOrder = elements.length+1;
+        scene.add(currentConnectionsObject);
+      }
+      
+      function tryMakeConnection(p1, p2){
+        if(p1 != p2){
+          if(!elements[p1].neighbors.includes(p2)){
+            elements[p1].neighbors.push(p2);
+          }
+          if(!elements[p2].neighbors.includes(p1)){
+            elements[p2].neighbors.push(p1);
+          }
+        }
+        redrawActiveElementConnections();
       }
       
       // Finds the clicked object and sets it active
@@ -123,8 +172,9 @@
         if(isActive){
           activePoints = new THREE.Points(elements[id].geometry, activePointsMaterial);
           activePoints.position.set(elements[id].origin.x, elements[id].origin.y, 0);
-          activePoints.renderOrder = elements.length+1;
+          activePoints.renderOrder = elements.length+2;
           scene.add(activePoints);
+          //TODO: Create active connections
         }
       }
       
@@ -141,12 +191,13 @@
         else{
           scene.remove(activePoints);
         }
+        redrawActiveElementConnections();
       }
       
       // Returns the nearest point within the point detection radius
       function nearestPoint(origin, shapeOrigin, points){
         var closest = -1;
-        //TODO: Figure out how to scale this based on camera zoom
+        //TODO: Bugfix for camera scaling
         var cDistance = vertDetectDistance;
         for(var i = 0; i < points.length; i++){
           var local = shapeOrigin.clone().add(points[i]);
@@ -210,6 +261,7 @@
         newElement.origin = gridSnap ? snapToGrid(pos) : pos;
         newElement.geometry = new THREE.ShapeGeometry(new THREE.Shape(newElement.points));
         newElement.color = 0xffffff;
+        newElement.neighbors = new Array();
         newElement.sceneObject = null;
         elements.push(newElement);
         origins.push(newElement.origin);
@@ -261,11 +313,19 @@
           if(e.button == 0){
             if(e.ctrlKey){
               addElement(int_point);
-              redrawOrigins();
+              redrawOrigins(e.shiftKey);
             }
             else if(e.shiftKey){
-              edit_origin = int_point;
-              activePointID = addPoint(int_point);
+              for(var i = 0; i < elements.length; i++){
+                if(int_point.distanceTo(elements[i].origin) <= vertDetectDistance){
+                  drawConnectionOrigin = i;
+                  break;
+                }
+              }
+              if(drawConnectionOrigin == null){
+                edit_origin = int_point;
+                activePointID = addPoint(int_point);
+              }
             }
             else{
               if(activeElementID == -1){
@@ -289,13 +349,14 @@
                   }
                 }
               }
+              redrawOrigins(e.shiftKey);
             }
           }
           else if(e.button == 2){
             var np = nearestPoint(int_point, elements[activeElementID].origin, elements[activeElementID].points);
-              if(np != -1) {
-                removePoint(np);
-              }
+            if(np != -1) {
+              removePoint(np);
+            }
           }
         };
         
@@ -306,6 +367,10 @@
             elements[activeElementID].points[activePointID] = gridSnap ? snapToGrid(targetPoint, localSnapOffset(elements[activeElementID].origin)) : targetPoint;
             edit_origin = int_point;
             redrawElement(activeElementID);
+          }
+          else if (drawConnectionOrigin != null){
+            var targetPoint = getPointProjected(e, invisible_plane);
+            redrawInProgressConnection(targetPoint);
           }
           else if(edit_origin != null){
             var int_point = getPointProjected(e, invisible_plane);
@@ -322,16 +387,29 @@
           edit_origin = null;
           virtualPosition = null;
           activePointID = -1;
+          if(drawConnectionOrigin != null){
+            var int_point = getPointProjected(e, invisible_plane)
+            for(var i = 0; i < elements.length; i++){
+              if(i != drawConnectionOrigin && int_point.distanceTo(elements[i].origin) <= vertDetectDistance){
+                tryMakeConnection(drawConnectionOrigin, i);
+              }
+            }
+          }
+          drawConnectionOrigin = null;
+          scene.remove(activeConnectionObject);
+          activeConnectionObject = null;
         }
         
         window.onkeydown = function( e ){
-          if(e.key == 'c'){
-            colorPicker.style.display = (colorPicker.style.display=="block") ? "none" : "block";
-          }
-          else if(e.key == 'g'){
+          redrawOrigins(e.shiftKey);
+          if(e.key == 'g'){
             gridSnap = !gridSnap;
             gridSnap ? scene.add(guideGrid) : scene.remove(guideGrid);
           }
+        }
+        
+        window.onkeyup = function( e ){
+          redrawOrigins(e.shiftKey);
         }
         // call animation/rendering loop
         animate();
@@ -346,13 +424,15 @@
       //TODO:
       // FEATURES
       //  Attributes
-      //  Relations
       //  Non-grid vert snapping
       //  Grouped Shapes
       //  Image Import
     </script>
   </head>
   <body>
-    <input type="color" id="ColorPicker" style="display: none" value="#ffffff">
+    <div class="instructions">
+      <label for="colorPicker">Shape Color</label>
+      <input type="color" id="ColorPicker" value="#ffffff" name="colorPicker">
+    </div>
   </body>
 </html>
