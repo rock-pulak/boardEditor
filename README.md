@@ -30,7 +30,6 @@ Keyboard shortcuts for editing:
 - SHIFT + left click + drag from red vertex (center point) to center point of different shape to create a connection between those two shapes
 
 # Visuals
-## Sprites
 ![checkerboard](https://github.com/user-attachments/assets/ad36028b-ab22-4362-a9b8-efb4d6321cb2)
 ![shapes](https://github.com/user-attachments/assets/5e1d36ce-dc7c-4225-afe7-f2ce489ab6c8)
 
