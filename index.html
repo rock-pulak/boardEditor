@@ -8,6 +8,13 @@
         height: 100%;
         overflow: hidden !important;  
       }
+      input {
+        background-color: rgba(0.2,0.2,0.2,0.75);
+        border-color: rgba(0, 0, 0, 0);
+      }
+      label {
+        color: #ffffff;
+      }
       .instructions{
         position: absolute;
         top: 0;
@@ -15,9 +22,6 @@
         width: 100%;
         z-index: 10;
         background-color: rgba(0.2,0.2,0.2,0.5);
-      }
-      label {
-        color: #ffffff;
       }
     </style>
     <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
@@ -123,10 +127,12 @@
       
       function redrawActiveElementConnections(){
         scene.remove(currentConnectionsObject);
-        var cLine = new THREE.BufferGeometry().setFromPoints(getLinesGeometry(elements[activeElementID].origin, elements[activeElementID].neighbors));
-        currentConnectionsObject = new THREE.Line(cLine, connectionsMaterial);
-        currentConnectionsObject.renderOrder = elements.length+1;
-        scene.add(currentConnectionsObject);
+        if(activeElementID != -1){
+          var cLine = new THREE.BufferGeometry().setFromPoints(getLinesGeometry(elements[activeElementID].origin, elements[activeElementID].neighbors));
+          currentConnectionsObject = new THREE.Line(cLine, connectionsMaterial);
+          currentConnectionsObject.renderOrder = elements.length+1;
+          scene.add(currentConnectionsObject);
+        }
       }
       
       function tryMakeConnection(p1, p2){
@@ -267,6 +273,31 @@
         origins.push(newElement.origin);
         setActiveElement(elements.length-1);
       }
+      
+      function removeElement(targetID){
+        scene.remove(elements[targetID].sceneObject);
+        for(var i = 0; i < elements.length; i++){
+          if(i != targetID && elements[i].neighbors.includes(targetID)){
+            elements[i].neighbors.pop(elements[i].neighbors.indexOf(targetID));
+          }
+          for(var j = 0; j < elements[i].neighbors.length; j++){
+            if(elements[i].neighbors[j] > targetID){
+              elements[i].neighbors[j]--;
+            }
+          }
+        }
+        elements = elements.slice(0, targetID).concat(elements.slice(targetID+1));
+        origins = origins.slice(0, targetID).concat(origins.slice(targetID+1));
+        if(targetID == activeElementID){
+          scene.remove(activePoints);
+          scene.remove(originsObject);
+          activeElementID = -1;
+        }
+        else if(targetID < activeElementID){
+           activeElementID--;
+        }
+        redrawActiveElementConnections();
+      }
 
       window.onload = function() {
 
@@ -360,22 +391,8 @@
             else{
               var clickTarget = getClickedObject(e);
               if(clickTarget != -1){
-                //TODO: To function?
-                scene.remove(elements[clickTarget].sceneObject);
-                for(var i = 0; i < elements.length; i++){
-                  if(i != clickTarget && elements[i].neighbors.includes(clickTarget)){
-                    elements[i].neighbors.pop(elements[i].neighbors.indexOf(clickTarget));
-                  }
-                }
-                elements = elements.slice(0, clickTarget).concat(elements.slice(clickTarget+1));
-                if(clickTarget == activeElementID){
-                  scene.remove(activePoints);
-                  scene.remove(originsObject);
-                  activeElementID = -1;
-                }
-                else if(clickTarget < activeElementID){
-                  activeElementID--;
-                }
+  
+                removeElement(clickTarget);
               }
             }
           }
