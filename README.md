@@ -53,6 +53,8 @@ There are also many quality-of-life features I want to implement to make designi
 - When moving an object with connections to other objects, the visualization of those connections does not immediately update.
 - Connections between objects do not delete properly
 - When adding a new vertex, it is sometimes placed along the wrong edge, leading to unexpected behavior.
+- Color Select button does not change to selected object's color (retains the last color it changed to)
+- Changing color to the color saved in Color Select requires changing to a different color, then changing back.
 
 # Authors and acknowledgment
 Thanks to Daniel Haehn, who provided code that served as the base for this project, as part of his [CS460 - Computer Graphics course](https://cs460.org/) at University of Massachusetts, Boston.
